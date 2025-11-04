@@ -1,0 +1,79 @@
+version: '3.8'
+services:
+  prometheus:
+    image: prom/prometheus:latest
+    volumes:
+      - ./prometheus.yml:/etc/prometheus/prometheus.yml:ro
+    ports:
+      - '9090:9090'
+    restart: unless-stopped
+
+  grafana:
+    image: grafana/grafana:latest
+    environment:
+      - GF_SECURITY_ADMIN_PASSWORD=admin
+    ports:
+      - '3000:3000'
+    depends_on:
+      - prometheus
+      - loki
+    restart: unless-stopped
+
+  loki:
+    image: grafana/loki:2.8.2
+    command: -config.file=/etc/loki/local-config.yaml
+    volumes:
+      - ./loki-config.yml:/etc/loki/local-config.yaml:ro
+    ports:
+      - '3100:3100'
+    restart: unless-stopped
+
+  promtail:
+    image: grafana/promtail:2.8.2
+    volumes:
+      - /var/lib/docker/containers:/var/lib/docker/containers:ro
+      - /var/log:/var/log:ro
+      - ./promtail-config.yml:/etc/promtail/promtail-config.yml:ro
+    command: -config.file=/etc/promtail/promtail-config.yml
+    depends_on:
+      - loki
+    restart: unless-stopped
+
+  jaeger:
+    image: jaegertracing/all-in-one:1.49
+    ports:
+      - '16686:16686'
+      - '14268:14268'
+    restart: unless-stopped
+
+  cadvisor:
+    image: gcr.io/google-containers/cadvisor:latest
+    volumes:
+      - /:/rootfs:ro
+      - /var/run:/var/run:ro
+      - /sys:/sys:ro
+      - /var/lib/docker/:/var/lib/docker:ro
+    ports:
+      - '8080:8080'
+    restart: unless-stopped
+
+  node_exporter:
+    image: prom/node-exporter:latest
+    ports:
+      - '9100:9100'
+    restart: unless-stopped
+
+  app:
+    build: ./app
+    ports:
+      - '5000:5000'
+    depends_on:
+      - prometheus
+      - jaeger
+    environment:
+      - OTEL_EXPORTER_JAEGER_ENDPOINT=http://jaeger:14268/api/traces
+    restart: unless-stopped
+
+networks:
+  default:
+    name: observ-net

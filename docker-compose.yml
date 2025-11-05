@@ -1,0 +1,80 @@
+version: '3.8'
+
+services:
+  prometheus:
+    image: prom/prometheus:latest
+    volumes:
+      - ./prometheus.yml:/etc/prometheus/prometheus.yml:ro
+    ports:
+      - '9090:9090'
+    restart: unless-stopped
+
+  grafana:
+    image: grafana/grafana:latest
+    environment:
+      - GF_SECURITY_ADMIN_USER=admin
+      - GF_SECURITY_ADMIN_PASSWORD=admin
+      - GF_USERS_ALLOW_SIGN_UP=false
+    ports:
+      - '3000:3000'
+    depends_on:
+      - prometheus
+      - loki
+    restart: unless-stopped
+
+  loki:
+    image: grafana/loki:2.9.0
+    command: -config.file=/etc/loki/local-config.yaml -config.expand-env=true
+    ports:
+      - "3100:3100"
+    volumes:
+      - ./loki-config.yml:/etc/loki/local-config.yaml
+      - ./loki-data:/loki
+    environment:
+      - LOKI_PATH_WAL=/loki/wal
+    restart: unless-stopped
+
+  promtail:
+    image: grafana/promtail:2.9.0
+    volumes:
+      - /var/lib/docker/containers:/var/lib/docker/containers:ro
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - ./promtail-config.yml:/etc/promtail/promtail-config.yml:ro
+    command:
+      - -config.file=/etc/promtail/promtail-config.yml
+      - -config.expand-env=true
+    depends_on:
+      - loki
+    restart: unless-stopped
+  
+  jaeger:
+    image: jaegertracing/all-in-one:1.49
+    ports:
+      - "16686:16686"  # Jaeger UI
+      - "14268:14268"  # Collector HTTP endpoint
+      - "6831:6831/udp" # Agent port
+    restart: unless-stopped
+
+  node_exporter:
+    image: prom/node-exporter:latest
+    ports:
+      - "9100:9100"
+    restart: unless-stopped
+
+  app:
+    build: ./app
+    ports:
+      - "5050:5050"
+    environment:
+      - OTEL_EXPORTER_JAEGER_AGENT_HOST=jaeger
+      - OTEL_EXPORTER_JAEGER_AGENT_PORT=6831
+      - OTEL_EXPORTER_JAEGER_ENDPOINT=http://jaeger:14268/api/traces
+    depends_on:
+      - prometheus
+      - jaeger
+      - loki
+    restart: unless-stopped
+
+networks:
+  default:
+    name: observ-net

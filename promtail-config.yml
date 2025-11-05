@@ -1,0 +1,32 @@
+server:
+  http_listen_port: 9080
+  grpc_listen_port: 0
+
+positions:
+  filename: /tmp/positions.yaml
+
+clients:
+  - url: http://loki:3100/loki/api/v1/push
+
+scrape_configs:
+  - job_name: docker-logs
+    docker_sd_configs:
+      - host: unix:///var/run/docker.sock
+        refresh_interval: 5s
+    relabel_configs:
+      # Container name (remove leading slash from Docker container names)
+      - source_labels: [__meta_docker_container_name]
+        target_label: container_name
+        regex: '/(.*)'
+        replacement: '$1'
+      # Use the Docker service name as the job label
+      - source_labels: [__meta_docker_container_label_com_docker_swarm_service_name]
+        target_label: job
+      # Only include running containers
+      - source_labels: [__meta_docker_container_state]
+        regex: 'running'
+        action: keep
+      # Set the path to the container logs
+      - source_labels: [__meta_docker_container_id]
+        target_label: __path__
+        replacement: /var/lib/docker/containers/$1/*-json.log
